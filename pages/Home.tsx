@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import BottomNav from '../components/BottomNav';
 import { getUser, saveMood, getMoods } from '../services/storage';
-import { getMoodInsight } from '../services/gemini';
+import { getMoodInsight } from '../services/ai';
 import { User, MoodEntry } from '../types';
 import { PenTool, Brain, Zap, Target, Laugh, Smile, Meh, Frown, Moon, CheckCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';

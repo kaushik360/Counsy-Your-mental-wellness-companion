@@ -3,7 +3,7 @@ import Layout from '../components/Layout';
 import BottomNav from '../components/BottomNav';
 import { Calendar, PenLine, Lock, Unlock, Sparkles, Plus, Laugh, Smile, Meh, Frown, Zap, Brain, Moon } from 'lucide-react';
 import { getJournals, saveJournal } from '../services/storage';
-import { analyzeJournalEntry } from '../services/gemini';
+import { analyzeJournalEntry } from '../services/ai';
 import { JournalEntry } from '../types';
 
 const TAGS = ['Stress', 'Study', 'Routine', 'Thoughts', 'Work', 'Family', 'Relationships', 'Gratitude'];
