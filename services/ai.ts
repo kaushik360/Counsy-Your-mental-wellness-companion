@@ -153,10 +153,10 @@ export const analyzeJournalEntry = async (text: string) => {
 
 "${text}"
 
-Please provide:
-1. A brief mood summary (1-2 sentences)
-2. A productivity/wellness insight (1 sentence)  
-3. 2-3 supportive recommendations
+Please respond in this exact format:
+MOOD: [Brief 1-2 sentence mood summary]
+INSIGHT: [One sentence productivity/wellness insight]
+RECOMMENDATIONS: [2-3 supportive recommendations, each on a new line]
 
 Keep the tone encouraging and supportive. Focus on student wellness and mental health.`;
 
@@ -179,17 +179,56 @@ Keep the tone encouraging and supportive. Focus on student wellness and mental h
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error("Empty analysis response");
 
-    // Parse the AI response into structured format
-    const lines = content.split('\n').filter(line => line.trim());
+    const content = response.choices[0]?.message?.content;
+    if (!content) throw new Error("Empty analysis response");
+
+    // Parse the structured AI response
+    let moodSummary = "Your emotions are valid and important.";
+    let productivityInsight = "Journaling helps process thoughts and feelings.";
+    let recommendations: string[] = ["Continue journaling regularly", "Practice self-compassion"];
+    
+    try {
+      // Extract MOOD section
+      const moodMatch = content.match(/MOOD:\s*([^]*?)(?=INSIGHT:|$)/i);
+      if (moodMatch) {
+        moodSummary = moodMatch[1].trim();
+      }
+      
+      // Extract INSIGHT section
+      const insightMatch = content.match(/INSIGHT:\s*([^]*?)(?=RECOMMENDATIONS:|$)/i);
+      if (insightMatch) {
+        productivityInsight = insightMatch[1].trim();
+      }
+      
+      // Extract RECOMMENDATIONS section
+      const recMatch = content.match(/RECOMMENDATIONS:\s*([^]*?)$/i);
+      if (recMatch) {
+        const recText = recMatch[1].trim();
+        recommendations = recText.split('\n')
+          .map(line => line.replace(/^[-•*]\s*/, '').trim())
+          .filter(line => line.length > 5)
+          .slice(0, 3);
+      }
+      
+      // Fallback parsing if structured format fails
+      if (!moodMatch && !insightMatch && !recMatch) {
+        const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 10);
+        if (sentences.length >= 2) {
+          moodSummary = sentences[0].trim() + ".";
+          productivityInsight = sentences[1].trim() + ".";
+          if (sentences.length > 2) {
+            recommendations = sentences.slice(2, 5).map(s => s.trim() + ".");
+          }
+        }
+      }
+    } catch (parseError) {
+      console.warn("Failed to parse structured response, using fallback");
+    }
     
     return {
-      moodSummary: lines[0] || "Your emotions are valid and important.",
-      productivityInsight: lines[1] || "Journaling helps process thoughts and feelings.",
-      recommendations: lines.slice(2).length > 0 ? lines.slice(2) : [
-        "Continue journaling regularly",
-        "Practice self-compassion",
-        "Reach out for support when needed"
-      ]
+      moodSummary,
+      productivityInsight,
+      recommendations: recommendations.length > 0 ? recommendations : ["Continue journaling regularly", "Practice self-compassion"]
     };
 
   } catch (error) {
