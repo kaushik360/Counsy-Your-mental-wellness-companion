@@ -179,9 +179,6 @@ Keep the tone encouraging and supportive. Focus on student wellness and mental h
     const content = response.choices[0]?.message?.content;
     if (!content) throw new Error("Empty analysis response");
 
-    const content = response.choices[0]?.message?.content;
-    if (!content) throw new Error("Empty analysis response");
-
     // Parse the structured AI response
     let moodSummary = "Your emotions are valid and important.";
     let productivityInsight = "Journaling helps process thoughts and feelings.";
