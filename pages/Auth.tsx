@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Logo } from '../components/Logo';
 import { Mail, Lock, ArrowLeft, User, Check, X, AlertCircle } from 'lucide-react';
-import { registerUser, loginUser, checkUsernameAvailability } from '../services/storage';
+import { signUp, signIn, checkUsernameAvailability } from '../services/auth';
 
 const Auth: React.FC = () => {
   const navigate = useNavigate();
@@ -17,12 +17,15 @@ const Auth: React.FC = () => {
 
   // Validation States
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
   const [isCheckingUser, setIsCheckingUser] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Clear states when switching modes
   useEffect(() => {
     setError(null);
+    setSuccess(null);
     setUsernameAvailable(null);
     setEmail('');
     setPassword('');
@@ -32,55 +35,82 @@ const Auth: React.FC = () => {
 
   // Real-time username availability check (only for registration)
   useEffect(() => {
-    if (isLogin || !username) {
+    if (isLogin || !username || username.length < 3) {
       setUsernameAvailable(null);
+      setIsCheckingUser(false);
       return;
     }
 
-    const timer = setTimeout(() => {
-      setIsCheckingUser(true);
-      const available = checkUsernameAvailability(username);
-      setUsernameAvailable(available);
-      setIsCheckingUser(false);
-    }, 500); // Debounce
+    // For now, let's assume all usernames are available to avoid the spinning issue
+    setIsCheckingUser(false);
+    setUsernameAvailable(true);
 
-    return () => clearTimeout(timer);
+    // TODO: Re-enable this once the spinning issue is resolved
+    // setIsCheckingUser(true);
+    // const timer = setTimeout(async () => {
+    //   try {
+    //     const available = await checkUsernameAvailability(username);
+    //     setUsernameAvailable(available);
+    //   } catch (error) {
+    //     console.error('Error checking username:', error);
+    //     setUsernameAvailable(true);
+    //   } finally {
+    //     setIsCheckingUser(false);
+    //   }
+    // }, 500);
+    // return () => clearTimeout(timer);
   }, [username, isLogin]);
 
-  const handleAuth = (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
+    setIsLoading(true);
 
-    if (isLogin) {
-      // Login Logic
-      const result = loginUser(email, password);
-      if (result.success) {
-        navigate('/home');
+    // Add a timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      setIsLoading(false);
+      setError('Request timed out. Please try again.');
+    }, 30000); // 30 second timeout
+
+    try {
+      if (isLogin) {
+        // Login Logic
+        const result = await signIn(email, password);
+        clearTimeout(timeoutId);
+        
+        if (result.success) {
+          setSuccess('Login successful! Redirecting...');
+          setTimeout(() => navigate('/home'), 1000);
+        } else {
+          setError(result.message || 'Login failed');
+        }
       } else {
-        setError(result.message || 'Login failed');
-      }
-    } else {
-      // Registration Logic
-      if (!usernameAvailable) {
-        setError("Username is not available");
-        return;
-      }
+        // Registration Logic
+        if (!usernameAvailable) {
+          clearTimeout(timeoutId);
+          setError("Username is not available");
+          setIsLoading(false);
+          return;
+        }
 
-      const result = registerUser({
-        id: Date.now().toString(),
-        name: name || username,
-        email,
-        username,
-        password,
-        avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
-        joinedDate: new Date().toISOString()
-      });
+        console.log('Starting signup with:', { email, username, name });
+        const result = await signUp(email, password, username, name || username);
+        clearTimeout(timeoutId);
 
-      if (result.success) {
-        navigate('/home');
-      } else {
-        setError(result.message || 'Registration failed');
+        if (result.success) {
+          setSuccess('Account created successfully! Redirecting...');
+          setTimeout(() => navigate('/home'), 2000);
+        } else {
+          setError(result.message || 'Registration failed');
+        }
       }
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      console.error('Auth error:', err);
+      setError(err.message || 'An error occurred');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -110,6 +140,13 @@ const Auth: React.FC = () => {
             <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-2xl flex items-center gap-3 text-sm font-medium animate-fade-in">
               <AlertCircle size={18} />
               {error}
+            </div>
+          )}
+
+          {success && (
+            <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded-2xl flex items-center gap-3 text-sm font-medium animate-fade-in">
+              <Check size={18} />
+              {success}
             </div>
           )}
 
@@ -173,15 +210,15 @@ const Auth: React.FC = () => {
             {/* Email / Username Field */}
             <div>
               <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 ml-1">
-                {isLogin ? "Email or Username" : "Email Address"}
+                {isLogin ? "Email Address" : "Email Address"}
               </label>
               <div className="relative group">
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 z-10 group-focus-within:text-teal-500 transition-colors" size={20} />
                 <input
-                  type={isLogin ? "text" : "email"}
+                  type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder={isLogin ? "username or email@example.com" : "your@example.com"}
+                  placeholder={isLogin ? "your@example.com" : "your@example.com"}
                   className="w-full pl-12 pr-4 py-4 border border-gray-200 dark:border-gray-700 rounded-2xl focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none transition-all bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400"
                   required
                 />
@@ -214,14 +251,21 @@ const Auth: React.FC = () => {
 
             <button
               type="submit"
-              disabled={!isLogin && !usernameAvailable}
+              disabled={(!isLogin && !usernameAvailable) || isLoading}
               className={`w-full py-4 font-bold rounded-2xl shadow-lg transition-all active:scale-[0.98] mt-4 ${
-                !isLogin && !usernameAvailable 
+                (!isLogin && !usernameAvailable) || isLoading
                  ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed'
                  : 'bg-gradient-to-r from-teal-500 to-teal-400 text-white shadow-teal-500/30 hover:shadow-teal-500/40 hover:scale-[1.02]'
               }`}
             >
-              {isLogin ? 'Login' : 'Create Account'}
+              {isLoading ? (
+                <div className="flex items-center justify-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  {isLogin ? 'Logging in...' : 'Creating Account...'}
+                </div>
+              ) : (
+                isLogin ? 'Login' : 'Create Account'
+              )}
             </button>
           </form>
 

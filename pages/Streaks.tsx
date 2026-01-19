@@ -2,15 +2,44 @@ import React, { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import BottomNav from '../components/BottomNav';
 import { Flame, BookOpen, Smile, Zap, Trophy, Calendar } from 'lucide-react';
-import { getStreakData } from '../services/storage';
-import { StreakData } from '../types';
+import { getStreakData } from '../services/storage'; // Fallback
+import { getStreakData as getSupabaseStreakData } from '../services/database';
+import { getUser } from '../services/storage';
+import { StreakData, User } from '../types';
+import { useAuth } from '../context/AuthContext';
 
 const Streaks: React.FC = () => {
+  const { user: supabaseUser } = useAuth();
+  const [user, setUser] = useState<User | null>(null);
   const [data, setData] = useState<StreakData | null>(null);
 
   useEffect(() => {
-    setData(getStreakData());
-  }, []);
+    const currentUser = supabaseUser || getUser();
+    if (currentUser) {
+      setUser(currentUser);
+      loadStreakData(currentUser);
+    }
+  }, [supabaseUser]);
+
+  const loadStreakData = async (currentUser: User) => {
+    try {
+      let streakData: StreakData;
+      
+      if (supabaseUser) {
+        // Use Supabase
+        streakData = await getSupabaseStreakData(currentUser.id);
+      } else {
+        // Fallback to localStorage
+        streakData = getStreakData();
+      }
+      
+      setData(streakData);
+    } catch (error) {
+      console.error('Error loading streak data:', error);
+      // Fallback to localStorage
+      setData(getStreakData());
+    }
+  };
 
   if (!data) return null;
 

@@ -3,17 +3,33 @@ import Layout from '../components/Layout';
 import BottomNav from '../components/BottomNav';
 import { ArrowLeft, User, Bell, Shield, Target, Link as LinkIcon, Sun, Moon, ChevronRight, HelpCircle, Phone, Info, LogOut, Mail } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { getUser, logoutUser } from '../services/storage';
+import { getUser, logoutUser } from '../services/storage'; // Fallback
+import { signOut } from '../services/auth';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 
 const Profile: React.FC = () => {
   const navigate = useNavigate();
-  const user = getUser();
+  const { user: supabaseUser } = useAuth();
+  const user = supabaseUser || getUser(); // Use Supabase user or fallback to localStorage
   const { isDark, toggleTheme } = useTheme();
 
-  const handleLogout = () => {
-    logoutUser();
-    navigate('/auth');
+  const handleLogout = async () => {
+    try {
+      if (supabaseUser) {
+        // Supabase logout
+        await signOut();
+      } else {
+        // localStorage logout
+        logoutUser();
+      }
+      navigate('/auth');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Fallback to localStorage logout
+      logoutUser();
+      navigate('/auth');
+    }
   };
 
   if (!user) return null;
@@ -87,6 +103,23 @@ const Profile: React.FC = () => {
                 onClick={() => window.open('tel:9579261713')} 
              />
              <MenuItem icon={Info} label="About Counsy" onClick={() => navigate('/about')} />
+           </div>
+        </div>
+
+        <div>
+           <h3 className="text-sm font-bold text-gray-900 dark:text-gray-200 mb-3">Data Management</h3>
+           <div className="rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
+             <MenuItem 
+                icon={Shield} 
+                label="Clear Local Data" 
+                detail="Remove old localStorage data"
+                onClick={() => {
+                  if (confirm('Clear all local data? This will remove old chat history, journals, etc.')) {
+                    localStorage.clear();
+                    alert('Local data cleared! Please refresh the page.');
+                  }
+                }}
+             />
            </div>
         </div>
 

@@ -2,12 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import Layout from '../components/Layout';
 import { ArrowLeft, HeartHandshake, Info, Mic, Send, MicOff, MoreVertical } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { ChatMessage } from '../types';
-import { getChatHistory, saveChatMessage, getUser } from '../services/storage';
+import { ChatMessage, User } from '../types';
+import { getChatHistory, saveChatMessage, getUser, clearChatHistory } from '../services/storage'; // Fallback
+import { getChatHistory as getSupabaseChatHistory, saveChatMessage as saveSupabaseChatMessage, clearChatHistory as clearSupabaseChatHistory } from '../services/database';
 import { getCounselorResponse, isDemoMode } from '../services/ai';
+import { useAuth } from '../context/AuthContext';
 
 const Counselor: React.FC = () => {
   const navigate = useNavigate();
+  const { user: supabaseUser } = useAuth();
+  const [user, setUser] = useState<User | null>(null);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -16,23 +20,52 @@ const Counselor: React.FC = () => {
   const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
-    const user = getUser();
-    const history = getChatHistory();
-    
-    if (history.length === 0) {
-        // Initial greeting with proper naming
-        const initialMsg: ChatMessage = {
-            id: 'init',
-            role: 'model',
-            text: `Hello ${user ? user.name : 'there'}! I'm Counsy AI, here to support you. How are you feeling today?`,
-            timestamp: new Date().toISOString()
-        };
-        saveChatMessage(initialMsg);
-        setMessages([initialMsg]);
-    } else {
-        setMessages(history);
+    const currentUser = supabaseUser || getUser();
+    if (currentUser) {
+      setUser(currentUser);
+      loadChatHistory(currentUser);
     }
-  }, []);
+  }, [supabaseUser]);
+
+  const loadChatHistory = async (currentUser: User) => {
+    try {
+      let history: ChatMessage[] = [];
+      
+      if (supabaseUser) {
+        // Use Supabase
+        history = await getSupabaseChatHistory(currentUser.id);
+      } else {
+        // Fallback to localStorage
+        history = getChatHistory();
+      }
+      
+      if (history.length === 0) {
+        // Initial greeting
+        const initialMsg: ChatMessage = {
+          id: 'init',
+          role: 'model',
+          text: `Hello ${currentUser.name}! I'm Counsy AI, here to support you. How are you feeling today?`,
+          timestamp: new Date().toISOString()
+        };
+        
+        // Save initial message
+        if (supabaseUser) {
+          await saveSupabaseChatMessage(currentUser.id, initialMsg);
+        } else {
+          saveChatMessage(initialMsg);
+        }
+        
+        setMessages([initialMsg]);
+      } else {
+        setMessages(history);
+      }
+    } catch (error) {
+      console.error('Error loading chat history:', error);
+      // Fallback to localStorage
+      const history = getChatHistory();
+      setMessages(history);
+    }
+  };
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -74,33 +107,54 @@ const Counselor: React.FC = () => {
   };
 
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || !user) return;
 
     const userMsg: ChatMessage = {
-        id: Date.now().toString(),
-        role: 'user',
-        text: input,
-        timestamp: new Date().toISOString()
+      id: Date.now().toString(),
+      role: 'user',
+      text: input,
+      timestamp: new Date().toISOString()
     };
 
     setMessages(prev => [...prev, userMsg]);
-    saveChatMessage(userMsg);
+    
+    // Save user message
+    try {
+      if (supabaseUser) {
+        await saveSupabaseChatMessage(user.id, userMsg);
+      } else {
+        saveChatMessage(userMsg);
+      }
+    } catch (error) {
+      console.error('Error saving user message:', error);
+    }
+    
     setInput('');
     setIsTyping(true);
 
-    const user = getUser();
-    // Pass the user's full name to the AI service
-    const replyText = await getCounselorResponse(messages, input, user?.name || 'Friend');
+    // Get AI response
+    const replyText = await getCounselorResponse(messages, input, user.name);
 
     const modelMsg: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'model',
-        text: replyText,
-        timestamp: new Date().toISOString()
+      id: (Date.now() + 1).toString(),
+      role: 'model',
+      text: replyText,
+      timestamp: new Date().toISOString()
     };
 
     setMessages(prev => [...prev, modelMsg]);
-    saveChatMessage(modelMsg);
+    
+    // Save AI message
+    try {
+      if (supabaseUser) {
+        await saveSupabaseChatMessage(user.id, modelMsg);
+      } else {
+        saveChatMessage(modelMsg);
+      }
+    } catch (error) {
+      console.error('Error saving AI message:', error);
+    }
+    
     setIsTyping(false);
   };
 

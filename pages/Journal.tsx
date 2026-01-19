@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import BottomNav from '../components/BottomNav';
 import { Calendar, PenLine, Lock, Unlock, Sparkles, Plus, Laugh, Smile, Meh, Frown, Zap, Brain, Moon } from 'lucide-react';
-import { getJournals, saveJournal } from '../services/storage';
+import { getUser } from '../services/storage'; // Fallback for localStorage
+import { getJournals as getSupabaseJournals, saveJournal as saveSupabaseJournal } from '../services/database';
+import { getJournals, saveJournal } from '../services/storage'; // Fallback
 import { analyzeJournalEntry } from '../services/ai';
-import { JournalEntry } from '../types';
+import { JournalEntry, User } from '../types';
+import { useAuth } from '../context/AuthContext';
 
 const TAGS = ['Stress', 'Study', 'Routine', 'Thoughts', 'Work', 'Family', 'Relationships', 'Gratitude'];
 
@@ -19,6 +22,8 @@ const MOOD_ICONS = [
 ];
 
 const Journal: React.FC = () => {
+  const { user: supabaseUser } = useAuth();
+  const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<'Today' | 'History'>('Today');
   const [content, setContent] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -28,8 +33,33 @@ const Journal: React.FC = () => {
   const [pastEntries, setPastEntries] = useState<JournalEntry[]>([]);
 
   useEffect(() => {
-    setPastEntries(getJournals());
-  }, []);
+    // Get user from Supabase or localStorage
+    const currentUser = supabaseUser || getUser();
+    if (currentUser) {
+      setUser(currentUser);
+      loadJournals(currentUser);
+    }
+  }, [supabaseUser]);
+
+  const loadJournals = async (currentUser: User) => {
+    try {
+      let journals: JournalEntry[] = [];
+      
+      if (supabaseUser) {
+        // Use Supabase
+        journals = await getSupabaseJournals(currentUser.id);
+      } else {
+        // Fallback to localStorage
+        journals = getJournals();
+      }
+      
+      setPastEntries(journals);
+    } catch (error) {
+      console.error('Error loading journals:', error);
+      // Fallback to localStorage on error
+      setPastEntries(getJournals());
+    }
+  };
 
   const toggleTag = (tag: string) => {
     if (selectedTags.includes(tag)) {
@@ -40,28 +70,46 @@ const Journal: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!content.trim()) return;
+    if (!content.trim() || !user) return;
     setIsSaving(true);
     
-    const analysis = await analyzeJournalEntry(content);
-    
-    const newEntry: JournalEntry = {
-      id: Date.now().toString(),
-      content,
-      timestamp: new Date().toISOString(),
-      tags: selectedTags,
-      mood: entryMood,
-      isLocked,
-      aiAnalysis: analysis
-    };
-    
-    saveJournal(newEntry);
-    setPastEntries([newEntry, ...pastEntries]);
-    setContent('');
-    setSelectedTags([]);
-    setEntryMood('Neutral');
-    setIsSaving(false);
-    setActiveTab('History');
+    try {
+      const analysis = await analyzeJournalEntry(content);
+      
+      const newEntry: Omit<JournalEntry, 'id'> = {
+        content,
+        timestamp: new Date().toISOString(),
+        tags: selectedTags,
+        mood: entryMood,
+        isLocked,
+        aiAnalysis: analysis
+      };
+      
+      if (supabaseUser) {
+        // Save to Supabase
+        await saveSupabaseJournal(user.id, newEntry);
+      } else {
+        // Fallback to localStorage
+        const entryWithId: JournalEntry = {
+          id: Date.now().toString(),
+          ...newEntry
+        };
+        saveJournal(entryWithId);
+      }
+      
+      // Reload journals
+      await loadJournals(user);
+      
+      // Reset form
+      setContent('');
+      setSelectedTags([]);
+      setEntryMood('Neutral');
+      setActiveTab('History');
+    } catch (error) {
+      console.error('Error saving journal:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (

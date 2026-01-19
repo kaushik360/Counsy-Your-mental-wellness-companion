@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
 import BottomNav from '../components/BottomNav';
-import { getUser, saveMood, getMoods } from '../services/storage';
+import { useAuth } from '../context/AuthContext';
+import { getUser, saveMood, getMoods } from '../services/storage'; // Import old storage for fallback
+import { getMoods as getSupabaseMoods, saveMood as saveSupabaseMood } from '../services/database';
 import { getMoodInsight } from '../services/ai';
 import { User, MoodEntry } from '../types';
 import { PenTool, Brain, Zap, Target, Laugh, Smile, Meh, Frown, Moon, CheckCircle } from 'lucide-react';
@@ -18,30 +20,65 @@ const MOODS = [
 ];
 
 const Home: React.FC = () => {
+  const { user: supabaseUser, loading } = useAuth();
   const [user, setUser] = useState<User | null>(null);
   const [selectedMood, setSelectedMood] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedInsight, setSubmittedInsight] = useState<string | null>(null);
+  const [moods, setMoods] = useState<MoodEntry[]>([]);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const u = getUser();
-    if (u) setUser(u);
-    else navigate('/auth');
-
-    // Check if already checked in today
-    const moods = getMoods();
-    if (moods.length > 0) {
-      const latest = moods[0]; // moods are sorted new -> old
-      const todayStr = new Date().toISOString().split('T')[0];
-      const latestStr = latest.timestamp.split('T')[0];
-
-      if (todayStr === latestStr) {
-        setSelectedMood(latest.mood);
-        setSubmittedInsight(latest.aiInsight || "You've already checked in today. Great job keeping track!");
-      }
+    console.log('Home page loading...', { supabaseUser, loading });
+    
+    // Try Supabase user first, then fallback to localStorage
+    let currentUser = supabaseUser;
+    if (!currentUser) {
+      currentUser = getUser(); // Fallback to localStorage
+      console.log('Using localStorage user:', currentUser);
     }
-  }, [navigate]);
+    
+    if (!currentUser) {
+      console.log('No user found, redirecting to auth');
+      navigate('/auth');
+      return;
+    }
+
+    console.log('Setting user:', currentUser);
+    setUser(currentUser);
+    loadMoods(currentUser);
+  }, [supabaseUser, loading, navigate]);
+
+  const loadMoods = async (currentUser: User) => {
+    if (!currentUser) return;
+    
+    try {
+      let userMoods: MoodEntry[] = [];
+      
+      // Try Supabase first, fallback to localStorage
+      if (supabaseUser) {
+        userMoods = await getSupabaseMoods(currentUser.id);
+      } else {
+        userMoods = getMoods(); // Fallback to localStorage
+      }
+      
+      setMoods(userMoods);
+
+      // Check if already checked in today
+      if (userMoods.length > 0) {
+        const latest = userMoods[0];
+        const todayStr = new Date().toISOString().split('T')[0];
+        const latestStr = latest.timestamp.split('T')[0];
+
+        if (todayStr === latestStr) {
+          setSelectedMood(latest.mood);
+          setSubmittedInsight(latest.aiInsight || "You've already checked in today. Great job keeping track!");
+        }
+      }
+    } catch (error) {
+      console.error('Error loading moods:', error);
+    }
+  };
 
   const handleMoodSelect = (moodLabel: string) => {
     // Only allow selection if not already submitted today
@@ -51,22 +88,39 @@ const Home: React.FC = () => {
   };
 
   const submitMood = async () => {
-    if (!selectedMood) return;
+    if (!selectedMood || !user) return;
     setIsSubmitting(true);
     
-    // Get AI insight first
-    const insight = await getMoodInsight(selectedMood);
-    
-    const entry: MoodEntry = {
-      id: Date.now().toString(),
-      mood: selectedMood as any,
-      timestamp: new Date().toISOString(),
-      aiInsight: insight
-    };
+    try {
+      // Get AI insight first
+      const insight = await getMoodInsight(selectedMood);
+      
+      const entry: Omit<MoodEntry, 'id'> = {
+        mood: selectedMood as any,
+        timestamp: new Date().toISOString(),
+        aiInsight: insight
+      };
 
-    saveMood(entry);
-    setSubmittedInsight(insight);
-    setIsSubmitting(false);
+      // Try Supabase first, fallback to localStorage
+      if (supabaseUser) {
+        await saveSupabaseMood(user.id, entry);
+      } else {
+        const moodWithId: MoodEntry = {
+          id: Date.now().toString(),
+          ...entry
+        };
+        saveMood(moodWithId);
+      }
+      
+      setSubmittedInsight(insight);
+      
+      // Reload moods to update the list
+      await loadMoods(user);
+    } catch (error) {
+      console.error('Error saving mood:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const resetCheckIn = () => {
@@ -76,7 +130,23 @@ const Home: React.FC = () => {
     navigate('/journal'); // Redirect to journal if they try to close
   };
 
-  if (!user) return null;
+  if (loading && !getUser()) {
+    return (
+      <Layout className="bg-gray-50/50 dark:bg-gray-900 pb-20">
+        <div className="flex items-center justify-center h-screen">
+          <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (!user) {
+    // If no user found in either Supabase or localStorage, redirect to auth
+    if (!loading && !getUser()) {
+      navigate('/auth');
+    }
+    return null;
+  }
 
   return (
     <Layout className="bg-gray-50/50 dark:bg-gray-900 pb-20">
