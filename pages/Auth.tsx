@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Logo } from '../components/Logo';
-import { Mail, Lock, ArrowLeft, User, Check, X, AlertCircle } from 'lucide-react';
-import { signUp, signIn, checkUsernameAvailability } from '../services/auth';
+import { Mail, Lock, ArrowLeft, User, Check, X, AlertCircle, CheckCircle } from 'lucide-react';
+import { signUp, signIn, checkUsernameAvailability, handleEmailVerification, resendVerification } from '../services/auth';
 
 const Auth: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [isLogin, setIsLogin] = useState(true);
   
   // Form Fields
@@ -21,6 +22,28 @@ const Auth: React.FC = () => {
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
   const [isCheckingUser, setIsCheckingUser] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showVerificationMessage, setShowVerificationMessage] = useState(false);
+
+  // Check if user is coming back from email verification
+  useEffect(() => {
+    const verified = searchParams.get('verified');
+    if (verified === 'true') {
+      handleVerification();
+    }
+  }, [searchParams]);
+
+  const handleVerification = async () => {
+    setIsLoading(true);
+    const result = await handleEmailVerification();
+    
+    if (result.success) {
+      setSuccess('Email verified successfully! Welcome to Counsy!');
+      setTimeout(() => navigate('/home'), 2000);
+    } else {
+      setError(result.message || 'Email verification failed');
+    }
+    setIsLoading(false);
+  };
 
   // Clear states when switching modes
   useEffect(() => {
@@ -99,8 +122,13 @@ const Auth: React.FC = () => {
         clearTimeout(timeoutId);
 
         if (result.success) {
-          setSuccess('Account created successfully! Redirecting...');
-          setTimeout(() => navigate('/home'), 2000);
+          if (result.requiresVerification) {
+            setShowVerificationMessage(true);
+            setSuccess(result.message || 'Please check your email for verification link.');
+          } else {
+            setSuccess('Account created successfully! Redirecting...');
+            setTimeout(() => navigate('/home'), 2000);
+          }
         } else {
           setError(result.message || 'Registration failed');
         }
@@ -145,8 +173,38 @@ const Auth: React.FC = () => {
 
           {success && (
             <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded-2xl flex items-center gap-3 text-sm font-medium animate-fade-in">
-              <Check size={18} />
+              <CheckCircle size={18} />
               {success}
+            </div>
+          )}
+
+          {showVerificationMessage && (
+            <div className="mb-6 p-6 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-2xl animate-fade-in">
+              <div className="flex items-center gap-3 mb-3">
+                <Mail size={20} className="text-blue-500" />
+                <h3 className="font-bold">Check Your Email</h3>
+              </div>
+              <p className="text-sm leading-relaxed mb-4">
+                We've sent a verification link to <strong>{email}</strong>. 
+                Click the link in your email to verify your account and complete the signup process.
+              </p>
+              <div className="text-xs text-blue-600 dark:text-blue-400">
+                <p>• Check your spam folder if you don't see the email</p>
+                <p>• The link will expire in 24 hours</p>
+              </div>
+              <button
+                onClick={async () => {
+                  const result = await resendVerification(email);
+                  if (result.success) {
+                    setSuccess(result.message!);
+                  } else {
+                    setError(result.message!);
+                  }
+                }}
+                className="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium underline"
+              >
+                Resend verification email
+              </button>
             </div>
           )}
 

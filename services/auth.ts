@@ -5,6 +5,7 @@ export interface AuthResponse {
   success: boolean;
   message?: string;
   user?: User;
+  requiresVerification?: boolean;
 }
 
 // Sign up with email and password
@@ -17,12 +18,20 @@ export const signUp = async (
   console.log('Starting signup process...', { email, username, name });
   
   try {
-    console.log('Creating auth user directly...');
+    console.log('Creating auth user with email confirmation...');
     
-    // Create auth user first
+    // Create auth user with email confirmation
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/#/auth?verified=true`,
+        data: {
+          username,
+          name,
+          avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
+        }
+      }
     });
 
     console.log('Auth signup result:', { authData, authError });
@@ -39,9 +48,19 @@ export const signUp = async (
       throw new Error('No user returned from signup');
     }
 
-    console.log('Auth user created, creating profile...');
+    // If user needs email confirmation
+    if (!authData.session) {
+      console.log('Email confirmation required');
+      return { 
+        success: true, 
+        message: 'Please check your email and click the verification link to complete your account setup.',
+        requiresVerification: true 
+      };
+    }
 
-    // Create profile directly (we'll handle duplicates with try/catch)
+    console.log('User signed up and confirmed, creating profile...');
+
+    // Create profile directly (user is confirmed)
     const { error: profileError } = await supabase.from('profiles').insert({
       id: authData.user.id,
       username,
@@ -52,18 +71,12 @@ export const signUp = async (
     if (profileError) {
       console.error('Profile creation error:', profileError);
       
-      // If it's a duplicate username error, return specific message
       if (profileError.message.includes('duplicate') || profileError.message.includes('unique')) {
-        await supabase.auth.signOut(); // Clean up auth user
         return { success: false, message: 'Username is already taken. Please choose a different username.' };
       }
       
-      // For other errors, clean up and throw
-      await supabase.auth.signOut();
       throw profileError;
     }
-
-    console.log('Profile created, initializing streak data...');
 
     // Initialize streak data
     const { error: streakError } = await supabase.from('streaks').insert({
@@ -72,7 +85,6 @@ export const signUp = async (
 
     if (streakError) {
       console.error('Streak initialization error:', streakError);
-      // Don't throw here, streak can be created later
     }
 
     console.log('Signup completed successfully');
@@ -118,7 +130,11 @@ export const signIn = async (emailOrUsername: string, password: string): Promise
       console.error('Auth error:', authError);
       
       if (authError.message.includes('Email not confirmed')) {
-        return { success: false, message: 'Please check your email and confirm your account before logging in.' };
+        return { 
+          success: false, 
+          message: 'Please verify your email address first. Check your inbox for the verification link.',
+          requiresVerification: true 
+        };
       }
       
       if (authError.message.includes('Invalid login credentials')) {
@@ -215,7 +231,91 @@ export const checkUsernameAvailability = async (username: string): Promise<boole
   }
 };
 
-// Update profile
+// Resend email verification
+export const resendVerification = async (email: string): Promise<AuthResponse> => {
+  try {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/#/auth?verified=true`
+      }
+    });
+
+    if (error) throw error;
+
+    return { success: true, message: 'Verification email sent! Please check your inbox.' };
+  } catch (error: any) {
+    console.error('Resend verification error:', error);
+    return { success: false, message: error.message || 'Failed to resend verification email' };
+  }
+};
+
+// Handle email verification after user clicks link
+export const handleEmailVerification = async (): Promise<AuthResponse> => {
+  try {
+    const { data: { session }, error } = await supabase.auth.getSession();
+    
+    if (error) throw error;
+    
+    if (!session?.user) {
+      return { success: false, message: 'No active session found' };
+    }
+
+    // Check if user already has a profile
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', session.user.id)
+      .single();
+
+    if (existingProfile) {
+      // Profile already exists, user is verified
+      const user: User = {
+        id: session.user.id,
+        email: session.user.email!,
+        username: existingProfile.username,
+        name: existingProfile.name,
+        avatarUrl: existingProfile.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${existingProfile.username}`,
+        joinedDate: session.user.created_at,
+      };
+      return { success: true, user };
+    }
+
+    // Create profile from user metadata
+    const metadata = session.user.user_metadata;
+    const { error: profileError } = await supabase.from('profiles').insert({
+      id: session.user.id,
+      username: metadata.username,
+      name: metadata.name,
+      avatar_url: metadata.avatar_url,
+    });
+
+    if (profileError) {
+      console.error('Profile creation error after verification:', profileError);
+      throw profileError;
+    }
+
+    // Initialize streak data
+    await supabase.from('streaks').insert({
+      user_id: session.user.id,
+    });
+
+    const user: User = {
+      id: session.user.id,
+      email: session.user.email!,
+      username: metadata.username,
+      name: metadata.name,
+      avatarUrl: metadata.avatar_url,
+      joinedDate: session.user.created_at,
+    };
+
+    return { success: true, user };
+  } catch (error: any) {
+    console.error('Email verification error:', error);
+    return { success: false, message: error.message || 'Email verification failed' };
+  }
+};
 export const updateProfile = async (userId: string, updates: {
   name?: string;
   username?: string;
