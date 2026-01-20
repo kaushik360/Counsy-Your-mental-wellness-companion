@@ -27,7 +27,10 @@ const Auth: React.FC = () => {
   // Check if user is coming back from email verification
   useEffect(() => {
     const verified = searchParams.get('verified');
-    if (verified === 'true') {
+    const accessToken = searchParams.get('access_token');
+    const refreshToken = searchParams.get('refresh_token');
+    
+    if (verified === 'true' || (accessToken && refreshToken)) {
       handleVerification();
     }
   }, [searchParams]);
@@ -188,9 +191,22 @@ const Auth: React.FC = () => {
                 We've sent a verification link to <strong>{email}</strong>. 
                 Click the link in your email to verify your account and complete the signup process.
               </p>
-              <div className="text-xs text-blue-600 dark:text-blue-400">
+              <div className="text-xs text-blue-600 dark:text-blue-400 mb-4">
                 <p>• Check your spam folder if you don't see the email</p>
                 <p>• The link will expire in 24 hours</p>
+                <p>• If the link doesn't work, try the manual verification below</p>
+              </div>
+              
+              <div className="border-t border-blue-200 dark:border-blue-800 pt-4 mb-4">
+                <p className="text-xs text-blue-600 dark:text-blue-400 mb-2">
+                  <strong>Alternative:</strong> If the email link doesn't work, you can verify manually:
+                </p>
+                <ol className="text-xs text-blue-600 dark:text-blue-400 space-y-1 ml-4">
+                  <li>1. Click the verification link in your email</li>
+                  <li>2. If it shows an error, copy the URL from your browser</li>
+                  <li>3. Replace "localhost:3000" with "localhost:5173" in the URL</li>
+                  <li>4. Press Enter to navigate to the corrected URL</li>
+                </ol>
               </div>
               <button
                 onClick={async () => {
