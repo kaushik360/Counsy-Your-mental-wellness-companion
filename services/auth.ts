@@ -19,6 +19,7 @@ export const signUp = async (
   
   try {
     console.log('Creating auth user with email confirmation...');
+    console.log('Current origin:', window.location.origin);
     
     // Create auth user with email confirmation
     const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -34,11 +35,19 @@ export const signUp = async (
       }
     });
 
-    console.log('Auth signup result:', { authData, authError });
+    console.log('Auth signup result:', { 
+      user: authData.user?.id, 
+      session: !!authData.session,
+      error: authError?.message,
+      emailConfirmationSent: authData.user && !authData.session
+    });
 
     if (authError) {
       if (authError.message.includes('already registered')) {
         return { success: false, message: 'Email is already registered. Try logging in instead.' };
+      }
+      if (authError.message.includes('User already registered')) {
+        return { success: false, message: 'This email is already registered. Try logging in or use a different email.' };
       }
       throw authError;
     }
@@ -48,17 +57,17 @@ export const signUp = async (
       throw new Error('No user returned from signup');
     }
 
-    // If user needs email confirmation
+    // If user needs email confirmation (no session means email confirmation required)
     if (!authData.session) {
-      console.log('Email confirmation required');
+      console.log('Email confirmation required - email should be sent');
       return { 
         success: true, 
-        message: 'Please check your email and click the verification link to complete your account setup.',
+        message: `Verification email sent to ${email}. Please check your inbox and spam folder.`,
         requiresVerification: true 
       };
     }
 
-    console.log('User signed up and confirmed, creating profile...');
+    console.log('User signed up and confirmed immediately, creating profile...');
 
     // Create profile directly (user is confirmed)
     const { error: profileError } = await supabase.from('profiles').insert({
@@ -228,6 +237,28 @@ export const checkUsernameAvailability = async (username: string): Promise<boole
     return !data; // Available if no data found
   } catch (error) {
     return true; // Assume available on error
+  }
+};
+
+// Test email functionality
+export const testEmailDelivery = async (email: string): Promise<AuthResponse> => {
+  try {
+    console.log('Testing email delivery for:', email);
+    
+    // Try to trigger a password reset email as a test
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/#/auth`
+    });
+
+    if (error) {
+      console.error('Email test error:', error);
+      return { success: false, message: `Email test failed: ${error.message}` };
+    }
+
+    return { success: true, message: 'Test email sent! Check your inbox to confirm email delivery is working.' };
+  } catch (error: any) {
+    console.error('Email test error:', error);
+    return { success: false, message: error.message || 'Email test failed' };
   }
 };
 

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Logo } from '../components/Logo';
 import { Mail, Lock, ArrowLeft, User, Check, X, AlertCircle, CheckCircle } from 'lucide-react';
-import { signUp, signIn, checkUsernameAvailability, handleEmailVerification, resendVerification } from '../services/auth';
+import { signUp, signIn, checkUsernameAvailability, handleEmailVerification, resendVerification, testEmailDelivery } from '../services/auth';
 
 const Auth: React.FC = () => {
   const navigate = useNavigate();
@@ -217,9 +217,23 @@ const Auth: React.FC = () => {
                     setError(result.message!);
                   }
                 }}
-                className="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium underline"
+                className="mt-4 mr-4 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium underline"
               >
                 Resend verification email
+              </button>
+              
+              <button
+                onClick={async () => {
+                  const result = await testEmailDelivery(email);
+                  if (result.success) {
+                    setSuccess(result.message!);
+                  } else {
+                    setError(result.message!);
+                  }
+                }}
+                className="mt-4 text-sm text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 font-medium underline"
+              >
+                Test email delivery
               </button>
             </div>
           )}
