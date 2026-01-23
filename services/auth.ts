@@ -169,6 +169,44 @@ export const signIn = async (emailOrUsername: string, password: string): Promise
 
     if (profileError) {
       console.error('Profile fetch error:', profileError);
+      
+      // If profile doesn't exist, try to create it from metadata
+      if (profileError.code === 'PGRST116') {
+        console.log('Profile not found, attempting to create from metadata...');
+        const metadata = authData.user.user_metadata;
+        
+        if (metadata?.username && metadata?.name) {
+          const { error: createError } = await supabase.from('profiles').insert({
+            id: authData.user.id,
+            username: metadata.username,
+            name: metadata.name,
+            avatar_url: metadata.avatar_url,
+          });
+          
+          if (createError) {
+            console.error('Failed to create profile:', createError);
+            return { success: false, message: 'Could not load user profile' };
+          }
+          
+          // Initialize streak data
+          await supabase.from('streaks').insert({
+            user_id: authData.user.id,
+          });
+          
+          const user: User = {
+            id: authData.user.id,
+            email: authData.user.email!,
+            username: metadata.username,
+            name: metadata.name,
+            avatarUrl: metadata.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${metadata.username}`,
+            joinedDate: authData.user.created_at,
+          };
+          
+          console.log('Login successful with newly created profile');
+          return { success: true, user };
+        }
+      }
+      
       return { success: false, message: 'Could not load user profile' };
     }
 
@@ -293,8 +331,10 @@ export const handleEmailVerification = async (): Promise<AuthResponse> => {
       return { success: false, message: 'No active session found' };
     }
 
+    console.log('Email verification - User session:', { userId: session.user.id, metadata: session.user.user_metadata });
+
     // Check if user already has a profile
-    const { data: existingProfile } = await supabase
+    const { data: existingProfile, error: profileCheckError } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', session.user.id)
@@ -302,6 +342,7 @@ export const handleEmailVerification = async (): Promise<AuthResponse> => {
 
     if (existingProfile) {
       // Profile already exists, user is verified
+      console.log('Profile already exists');
       const user: User = {
         id: session.user.id,
         email: session.user.email!,
@@ -315,6 +356,14 @@ export const handleEmailVerification = async (): Promise<AuthResponse> => {
 
     // Create profile from user metadata
     const metadata = session.user.user_metadata;
+    
+    if (!metadata?.username || !metadata?.name) {
+      console.error('Missing metadata:', metadata);
+      return { success: false, message: 'User metadata is incomplete. Please sign up again.' };
+    }
+
+    console.log('Creating profile with metadata:', metadata);
+
     const { error: profileError } = await supabase.from('profiles').insert({
       id: session.user.id,
       username: metadata.username,
@@ -324,13 +373,24 @@ export const handleEmailVerification = async (): Promise<AuthResponse> => {
 
     if (profileError) {
       console.error('Profile creation error after verification:', profileError);
+      
+      if (profileError.message.includes('duplicate') || profileError.message.includes('unique')) {
+        return { success: false, message: 'Username is already taken. Please contact support.' };
+      }
+      
       throw profileError;
     }
 
+    console.log('Profile created successfully');
+
     // Initialize streak data
-    await supabase.from('streaks').insert({
+    const { error: streakError } = await supabase.from('streaks').insert({
       user_id: session.user.id,
     });
+
+    if (streakError) {
+      console.error('Streak initialization error:', streakError);
+    }
 
     const user: User = {
       id: session.user.id,
